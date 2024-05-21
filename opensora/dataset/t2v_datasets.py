@@ -229,7 +229,7 @@ class T2V_dataset(Dataset):
             local_vid_cap_lists += local_vid_cap_list
 
         # print([item['path'] for item in vid_cap_list])
-        return vid_cap_lists, local_vid_cap_lists, len(vid_cap_list)
+        return vid_cap_lists, local_vid_cap_lists, len(vid_cap_lists)
 
     def read_images(self):
         img_cap_lists = []

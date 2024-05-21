@@ -541,7 +541,7 @@ def main(args):
     def run(videos, images, cond, attn_mask, cond_mask, prof):
         global start_time
         start_time = time.time()
-        print(videos.size(), images.size(), cond.size(), attn_mask.size(), cond_mask.size())
+        # print(videos.size(), images.size(), cond.size(), attn_mask.size(), cond_mask.size())
         if args.use_image_num != 0:
             vid_cond, img_cond = cond[:, 0], cond[:, 1:].contiguous().view(-1, cond.size(-2), cond.size(-1))
             vid_attn_mask, img_attn_mask = attn_mask[:, :-args.use_image_num], attn_mask[:, -args.use_image_num:].contiguous().view(-1, 1, attn_mask.size(-2),

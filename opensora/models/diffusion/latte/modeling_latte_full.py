@@ -204,34 +204,34 @@ class LatteT2V(ModelMixin, ConfigMixin):
         )
 
         # Define temporal transformers blocks
-        self.temporal_transformer_blocks = nn.ModuleList(
-            [
-                BasicTransformerBlock_(  # one attention
-                    inner_dim,
-                    num_attention_heads,  # num_attention_heads
-                    attention_head_dim,  # attention_head_dim 72
-                    dropout=dropout,
-                    cross_attention_dim=None,
-                    activation_fn=activation_fn,
-                    num_embeds_ada_norm=num_embeds_ada_norm,
-                    attention_bias=attention_bias,
-                    only_cross_attention=only_cross_attention,
-                    double_self_attention=False,
-                    upcast_attention=upcast_attention,
-                    norm_type=norm_type,
-                    norm_elementwise_affine=norm_elementwise_affine,
-                    norm_eps=norm_eps,
-                    attention_type=attention_type,
-                    attention_mode=attention_mode,
-                    use_rope=use_rope,
-                    rope_scaling=rope_scaling,
-                    compress_kv_factor=(
-                    compress_kv_factor,) if d >= num_layers // 2 and compress_kv_factor != 1 else None,
-                    # follow pixart-sigma, apply in second-half layers
-                )
-                for d in range(num_layers)
-            ]
-        )
+        # self.temporal_transformer_blocks = nn.ModuleList(
+        #     [
+        #         BasicTransformerBlock_(  # one attention
+        #             inner_dim,
+        #             num_attention_heads,  # num_attention_heads
+        #             attention_head_dim,  # attention_head_dim 72
+        #             dropout=dropout,
+        #             cross_attention_dim=None,
+        #             activation_fn=activation_fn,
+        #             num_embeds_ada_norm=num_embeds_ada_norm,
+        #             attention_bias=attention_bias,
+        #             only_cross_attention=only_cross_attention,
+        #             double_self_attention=False,
+        #             upcast_attention=upcast_attention,
+        #             norm_type=norm_type,
+        #             norm_elementwise_affine=norm_elementwise_affine,
+        #             norm_eps=norm_eps,
+        #             attention_type=attention_type,
+        #             attention_mode=attention_mode,
+        #             use_rope=use_rope,
+        #             rope_scaling=rope_scaling,
+        #             compress_kv_factor=(
+        #             compress_kv_factor,) if d >= num_layers // 2 and compress_kv_factor != 1 else None,
+        #             # follow pixart-sigma, apply in second-half layers
+        #         )
+        #         for d in range(num_layers)
+        #     ]
+        # )
 
         # 4. Define output layers
         self.out_channels = in_channels if out_channels is None else out_channels
@@ -454,7 +454,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
             pos_hw, pos_t = self.make_position(input_batch_size, frame, use_image_num, height, width,
                                                hidden_states.device)
 
-        for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
+        hidden_states = hidden_states + temp_pos_embed
+        # for i, (spatial_block, temp_block) in enumerate(zip(self.transformer_blocks, self.temporal_transformer_blocks)):
+        for i, spatial_block in enumerate(self.transformer_blocks):
 
             if self.training and self.gradient_checkpointing:
                 hidden_states = torch.utils.checkpoint.checkpoint(
@@ -472,52 +474,52 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     use_reentrant=False,
                 )
 
-                if enable_temporal_attentions:
-                    if get_sequence_parallel_state():
-                        hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
-                                                           -1).transpose(0, 1).contiguous()
-                        hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
-                        if use_image_num != 0:
-                            hidden_states_image = hidden_states[frame:]
-                            hidden_states = hidden_states[:frame]
-                        if i == 0:
-                            hidden_states = hidden_states + temp_pos_embed
-                        hidden_states = torch.utils.checkpoint.checkpoint(
-                            temp_block,
-                            hidden_states,
-                            temp_attention_mask,  # attention_mask
-                            None,  # encoder_hidden_states
-                            None,  # encoder_attention_mask
-                            timestep_temp,
-                            cross_attention_kwargs,
-                            class_labels,
-                            pos_t,
-                            pos_t,
-                            (frame,),
-                            use_reentrant=False,
-                        )
-                        if use_image_num != 0:
-                            hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
-                        hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
-                                                  b=input_batch_size).contiguous()
-                    else:
-                        if i == 0:
-                            hidden_states = hidden_states + temp_pos_embed
-
-                        hidden_states = torch.utils.checkpoint.checkpoint(
-                            temp_block,
-                            hidden_states,
-                            None,  # attention_mask
-                            None,  # encoder_hidden_states
-                            None,  # encoder_attention_mask
-                            timestep_temp,
-                            cross_attention_kwargs,
-                            class_labels,
-                            pos_t,
-                            pos_t,
-                            (frame,),
-                            use_reentrant=False,
-                        )
+                # if enable_temporal_attentions:
+                #     if get_sequence_parallel_state():
+                #         hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
+                #                                            -1).transpose(0, 1).contiguous()
+                #         hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
+                #         if use_image_num != 0:
+                #             hidden_states_image = hidden_states[frame:]
+                #             hidden_states = hidden_states[:frame]
+                #         if i == 0:
+                #             hidden_states = hidden_states + temp_pos_embed
+                #         hidden_states = torch.utils.checkpoint.checkpoint(
+                #             temp_block,
+                #             hidden_states,
+                #             temp_attention_mask,  # attention_mask
+                #             None,  # encoder_hidden_states
+                #             None,  # encoder_attention_mask
+                #             timestep_temp,
+                #             cross_attention_kwargs,
+                #             class_labels,
+                #             pos_t,
+                #             pos_t,
+                #             (frame,),
+                #             use_reentrant=False,
+                #         )
+                #         if use_image_num != 0:
+                #             hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
+                #         hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
+                #                                   b=input_batch_size).contiguous()
+                #     else:
+                #         if i == 0:
+                #             hidden_states = hidden_states + temp_pos_embed
+                #
+                #         hidden_states = torch.utils.checkpoint.checkpoint(
+                #             temp_block,
+                #             hidden_states,
+                #             None,  # attention_mask
+                #             None,  # encoder_hidden_states
+                #             None,  # encoder_attention_mask
+                #             timestep_temp,
+                #             cross_attention_kwargs,
+                #             class_labels,
+                #             pos_t,
+                #             pos_t,
+                #             (frame,),
+                #             use_reentrant=False,
+                #         )
             else:
                 hidden_states = spatial_block(
                     hidden_states,
@@ -532,48 +534,48 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     hw,
                 )
 
-                if enable_temporal_attentions:
-                    if get_sequence_parallel_state():
-                        hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
-                                                           -1).transpose(0, 1).contiguous()
-                        hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
-                        if use_image_num != 0:
-                            hidden_states_image = hidden_states[frame:]
-                            hidden_states = hidden_states[:frame]
-                        if i == 0:
-                            hidden_states = hidden_states + temp_pos_embed
-                        hidden_states = temp_block(
-                            hidden_states,
-                            None,  # attention_mask
-                            None,  # encoder_hidden_states
-                            None,  # encoder_attention_mask
-                            timestep_temp,
-                            cross_attention_kwargs,
-                            class_labels,
-                            pos_t,
-                            pos_t,
-                            (frame,),
-                        )
-                        if use_image_num != 0:
-                            hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
-                        hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
-                                                  b=input_batch_size).contiguous()
-                    else:
-                        if i == 0:
-                            hidden_states = hidden_states + temp_pos_embed
-
-                        hidden_states = temp_block(
-                            hidden_states,
-                            None,  # attention_mask
-                            None,  # encoder_hidden_states
-                            None,  # encoder_attention_mask
-                            timestep_temp,
-                            cross_attention_kwargs,
-                            class_labels,
-                            pos_t,
-                            pos_t,
-                            (frame,),
-                        )
+                # if enable_temporal_attentions:
+                #     if get_sequence_parallel_state():
+                #         hidden_states = hidden_states.view(input_batch_size, frame + use_image_num, num_patches,
+                #                                            -1).transpose(0, 1).contiguous()
+                #         hidden_states = hidden_states.view(frame + use_image_num, input_batch_size * num_patches, -1)
+                #         if use_image_num != 0:
+                #             hidden_states_image = hidden_states[frame:]
+                #             hidden_states = hidden_states[:frame]
+                #         if i == 0:
+                #             hidden_states = hidden_states + temp_pos_embed
+                #         hidden_states = temp_block(
+                #             hidden_states,
+                #             None,  # attention_mask
+                #             None,  # encoder_hidden_states
+                #             None,  # encoder_attention_mask
+                #             timestep_temp,
+                #             cross_attention_kwargs,
+                #             class_labels,
+                #             pos_t,
+                #             pos_t,
+                #             (frame,),
+                #         )
+                #         if use_image_num != 0:
+                #             hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
+                #         hidden_states = rearrange(hidden_states, 'f (b t) d -> (b f) t d',
+                #                                   b=input_batch_size).contiguous()
+                #     else:
+                #         if i == 0:
+                #             hidden_states = hidden_states + temp_pos_embed
+                #
+                #         hidden_states = temp_block(
+                #             hidden_states,
+                #             None,  # attention_mask
+                #             None,  # encoder_hidden_states
+                #             None,  # encoder_attention_mask
+                #             timestep_temp,
+                #             cross_attention_kwargs,
+                #             class_labels,
+                #             pos_t,
+                #             pos_t,
+                #             (frame,),
+                #         )
 
         if self.is_input_patches:
             if self.config.norm_type != "ada_norm_single":
