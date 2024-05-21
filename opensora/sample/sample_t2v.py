@@ -22,7 +22,7 @@ import os, sys
 
 from opensora.models.ae import ae_stride_config, getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
-from opensora.models.diffusion.latte.modeling_latte import LatteT2V
+from opensora.models.diffusion.latte.modeling_latte_full import LatteT2V
 from opensora.models.text_encoder import get_text_enc
 from opensora.npu_config import npu_config
 from opensora.utils.utils import save_video_grid

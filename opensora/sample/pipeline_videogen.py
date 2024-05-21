@@ -741,7 +741,13 @@ class VideoGenPipeline(DiffusionPipeline):
             latents_shape = list(latents.shape)
             full_shape = [latents_shape[0] * hccl_info.world_size] + latents_shape[1:]
             all_latents = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
-            torch.distributed.all_gather_into_tensor(all_latents, latents)
+            # torch.distributed.all_gather_into_tensor(all_latents, latents)
+
+            all_latents_input = torch.zeros(full_shape, dtype=latents.dtype, device=latents.device)
+            for offset in range(hccl_info.world_size):
+                all_latents_input[offset * latents_shape[0]: (offset + 1) * latents_shape[0]] = latents
+            torch.distributed.all_to_all_single(all_latents, all_latents_input, group=hccl_info.group)
+
             latents_list = list(all_latents.chunk(hccl_info.world_size, dim=0))
             latents = torch.cat(latents_list, dim=2)[:, :, :video_length]
         latents = latents[:, :, :video_length]
