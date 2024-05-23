@@ -955,7 +955,8 @@ class AttnProcessor2_0:
             sequence_length, batch_size, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
             )
-            sequence_length *= self.sp_size
+            if get_sequence_parallel_state():
+                sequence_length *= self.sp_size
         else:
             batch_size, sequence_length, _ = (
                 hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
@@ -1000,7 +1001,7 @@ class AttnProcessor2_0:
 
             with set_run_dtype(query, dtype):
                 query, key, value = npu_config.set_current_run_dtype([query, key, value])
-                if self.layout == "SBH":
+                if self.layout == "SBH" and get_sequence_parallel_state():
                     query = query.view(-1, attn.heads, head_dim)  # [s // sp, b, h * d] -> [s // sp * b, h, d]
                     key = key.view(-1, attn.heads, head_dim)
                     value = value.view(-1, attn.heads, head_dim)
@@ -1018,7 +1019,7 @@ class AttnProcessor2_0:
 
                     # [s * b, h // sp, d] -> [s // sp * b, h, d] -> [s // sp, b, h * d]
                     hidden_states = all_to_all_SBH(hidden_states, scatter_dim=0, gather_dim=1).view(-1, batch_size, h_size)
-                else:  # BSH
+                else:  # BSH or SBH wo sp
                     hidden_states = npu_config.run_attention(query, key, value, attention_mask, self.layout,
                                                              head_dim, attn.heads)
 
@@ -1283,6 +1284,7 @@ class BasicTransformerBlock_(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine, eps=norm_eps)
 
+        self.layout = "SBH" if get_sequence_parallel_state() else "BSH"
         self.attn1 = Attention(
             query_dim=dim,
             heads=num_attention_heads,
@@ -1295,7 +1297,7 @@ class BasicTransformerBlock_(nn.Module):
             use_rope=use_rope,
             rope_scaling=rope_scaling,
             compress_kv_factor=compress_kv_factor,
-            layout="SBH" if get_sequence_parallel_state() else "BSH"
+            layout=self.layout
         )
 
         # # 2. Cross-Attn
@@ -1370,7 +1372,7 @@ class BasicTransformerBlock_(nn.Module):
         elif self.use_layer_norm:
             norm_hidden_states = self.norm1(hidden_states)
         elif self.use_ada_layer_norm_single:
-            if get_sequence_parallel_state():
+            if self.layout == "SBH":
                 batch_size = hidden_states.shape[1]
                 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
                         self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)

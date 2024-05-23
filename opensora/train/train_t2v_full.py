@@ -54,14 +54,14 @@ from opensora.dataset import getdataset, ae_denorm
 from opensora.models.ae import getae, getae_wrapper
 from opensora.models.ae.videobase import CausalVQVAEModelWrapper, CausalVAEModelWrapper
 from opensora.models.diffusion.diffusion import create_diffusion_T as create_diffusion
-from opensora.models.diffusion.latte.modeling_latte_full import LatteT2V
+from opensora.models.diffusion.latte.modeling_latte_full import FullLatteT2V
 from opensora.models.text_encoder import get_text_enc, get_text_warpper
 from opensora.utils.dataset_utils import Collate
 from opensora.models.ae import ae_stride_config, ae_channel_config
 from opensora.models.diffusion import Diffusion_models
 from opensora.sample.pipeline_videogen import VideoGenPipeline
 from opensora.acceleration.parallel_states import initialize_sequence_parallel_state, destroy_sequence_parallel_group, \
-    get_sequence_parallel_state, enable_LCCL
+    get_sequence_parallel_state, set_sequence_parallel_state, enable_LCCL
 from opensora.acceleration.communications import prepare_parallel_data, broadcast
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -334,7 +334,7 @@ def main(args):
     # Create EMA for the unet.
     if args.use_ema:
         ema_model = deepcopy(model)
-        ema_model = EMAModel(ema_model.parameters(), model_cls=LatteT2V, model_config=ema_model.config)
+        ema_model = EMAModel(ema_model.parameters(), model_cls=FullLatteT2V, model_config=ema_model.config)
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -352,7 +352,7 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), LatteT2V)
+                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "model_ema"), FullLatteT2V)
                 ema_model.load_state_dict(load_model.state_dict())
                 ema_model.to(accelerator.device)
                 del load_model
@@ -362,7 +362,7 @@ def main(args):
                 model = models.pop()
 
                 # load diffusers style into model
-                load_model = LatteT2V.from_pretrained(input_dir, subfolder="model")
+                load_model = FullLatteT2V.from_pretrained(input_dir, subfolder="model")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())
@@ -538,31 +538,29 @@ def main(args):
                     log_validation(args, model, ae, text_enc.text_enc, train_dataset.tokenizer, accelerator,
                                    weight_dtype, progress_info.global_step)
 
-    def run(videos, images, cond, attn_mask, cond_mask, prof):
+    def run(x, cond, attn_mask, cond_mask, probs, prof):
         global start_time
         start_time = time.time()
         # print(videos.size(), images.size(), cond.size(), attn_mask.size(), cond_mask.size())
-        if args.use_image_num != 0:
-            vid_cond, img_cond = cond[:, 0], cond[:, 1:].contiguous().view(-1, cond.size(-2), cond.size(-1))
-            vid_attn_mask, img_attn_mask = attn_mask[:, :-args.use_image_num], attn_mask[:, -args.use_image_num:].contiguous().view(-1, 1, attn_mask.size(-2),
-                                                                                                attn_mask.size(-1))
-            vid_cond_mask, img_cond_mask = cond_mask[:, :-args.use_image_num], cond_mask[:, -args.use_image_num:].contiguous().view(-1, 1, cond_mask.size(-1))
-        else:
-            vid_cond = cond
-            vid_attn_mask = attn_mask
-            vid_cond_mask = cond_mask
 
         def forward(x, cond, attn_mask, cond_mask):
             model_kwargs = dict(encoder_hidden_states=cond, attention_mask=attn_mask,
                                 encoder_attention_mask=cond_mask)
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=accelerator.device)
+            if get_sequence_parallel_state():
+                broadcast(t)
             loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
             loss = loss_dict["loss"].mean()
             return loss
 
-        loss = forward(videos, vid_cond, vid_attn_mask, vid_cond_mask)
-        if args.use_image_num != 0:
-            loss = 0.9 * loss + 0.1 * forward(images, img_cond, img_attn_mask, img_cond_mask)
+        loss = 0.
+        for x_, cond_, attn_mask_, cond_mask_, prob_ in zip(x, cond, attn_mask, cond_mask, probs):
+            if npu_config.on_npu and npu_config.enable_FP32:
+                x_ = x_.to(torch.float32)
+                cond_ = cond_.to(torch.float32)
+            loss += prob_ * forward(x_, cond_, attn_mask_, cond_mask_)
+            if args.sp_size > 1:
+                set_sequence_parallel_state(not get_sequence_parallel_state())
 
         # Backpropagate
         accelerator.backward(loss)
@@ -606,8 +604,6 @@ def main(args):
             if args.use_image_num == 0:
                 x = ae.encode(x)  # B C T H W
                 cond = text_enc(input_ids, cond_mask)  # B L -> B L D
-                videos = x
-                images = None
             else:
                 videos, images = x[:, :, :-args.use_image_num], x[:, :, -args.use_image_num:]
                 videos = ae.encode(videos)  # B C T H W
@@ -615,35 +611,44 @@ def main(args):
                 images = rearrange(images, 'b c t h w -> (b t) c 1 h w')
                 images = ae.encode(images)
 
+        assert torch.all(attn_mask), "unable multi-scale"
+
+        if args.use_image_num != 0:
+            vid_cond, img_cond = cond[:, 0], cond[:, 1:].contiguous().view(-1, cond.size(-2), cond.size(-1))
+            vid_attn_mask, img_attn_mask = attn_mask[:, :-args.use_image_num], attn_mask[:, -args.use_image_num:].contiguous().view(-1, 1, attn_mask.size(-2),
+                                                                                                attn_mask.size(-1))
+            vid_cond_mask, img_cond_mask = cond_mask[:, :-args.use_image_num], cond_mask[:, -args.use_image_num:].contiguous().view(-1, 1, cond_mask.size(-1))
+            x = [videos, images]
+            cond = [vid_cond, img_cond]
+            attn_mask = [vid_attn_mask, img_attn_mask]
+            cond_mask = [vid_cond_mask, img_cond_mask]
+        else:
+            x = [x]
+            cond = [cond]
+            attn_mask = [attn_mask]
+            cond_mask = [cond_mask]
+
+        probs = [0.95, 0.05]
         if get_sequence_parallel_state():
-            loss = 0.0
-            grad_norm = 0.0
-            # npu_config.print_tensor_stats(attn_mask, "attn_mask before prepare_parallel_data")
-            x, cond, attn_mask, cond_mask, temp_attention_mask, use_image_num = prepare_parallel_data(x, cond, attn_mask,
-                                                                                                      cond_mask, args.use_image_num)
-            assert torch.all(attn_mask), "unable multi-scale"
-            # npu_config.print_tensor_stats(attn_mask, "attn_mask after prepare_parallel_data")
-
-            if npu_config.on_npu and npu_config.enable_FP32:
-                x = x.to(torch.float32)
-                cond = cond.to(torch.float32)
-
+            x[0], cond[0], attn_mask[0], cond_mask[0], _ = prepare_parallel_data(x[0],
+                                                                                 cond[0],
+                                                                                 attn_mask[0],
+                                                                                 cond_mask[0],
+                                                                                 0)
             for iter in range(args.train_batch_size * args.sp_size // args.train_sp_batch_size):
                 with accelerator.accumulate(model):
                     st_idx = iter * args.train_sp_batch_size
                     ed_idx = (iter + 1) * args.train_sp_batch_size
-                    model_kwargs = dict(encoder_hidden_states=cond[st_idx: ed_idx],
-                                        attention_mask=attn_mask[st_idx: ed_idx],
-                                        encoder_attention_mask=cond_mask[st_idx: ed_idx],
-                                        temp_attention_mask=temp_attention_mask[st_idx: ed_idx],
-                                        use_image_num=use_image_num)
-
-                    run(x[st_idx: ed_idx], model_kwargs, prof_)
-
+                    run([x_[st_idx:ed_idx] for x_ in x],
+                        [cond_[st_idx:ed_idx] for cond_ in cond],
+                        [attn_mask_[st_idx:ed_idx] for attn_mask_ in attn_mask],
+                        [cond_mask_[st_idx:ed_idx] for cond_mask_ in cond_mask],
+                        probs,
+                        prof_)
         else:
-            assert torch.all(attn_mask), "unable multi-scale"
             with accelerator.accumulate(model):
-                run(videos, images, cond, attn_mask, cond_mask, prof_)
+                run(x, cond, attn_mask, cond_mask, probs, prof_)
+
 
         if progress_info.global_step >= args.max_train_steps:
             return True

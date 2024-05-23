@@ -135,16 +135,18 @@ def prepare_parallel_data(hidden_states, encoder_hidden_states, attention_mask, 
                                                     enable_HCCL=True)
         return hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask
 
-    if use_image_num == 0:
-        hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask = all_to_all(hidden_states,
-                                                                                                  encoder_hidden_states,
-                                                                                                  attention_mask,
-                                                                                                  encoder_attention_mask)
+    if enable_LCCL:
+        sp_size = lccl_info.world_size
     else:
-        if enable_LCCL:
-            sp_size = lccl_info.world_size
-        else:
-            sp_size = hccl_info.world_size
+        sp_size = hccl_info.world_size
+    if use_image_num == 0:
+        hidden_states, encoder_hidden_states, attention_mask, encoder_attention_mask = (
+            all_to_all(hidden_states,
+                      encoder_hidden_states.unsqueeze(1).repeat(1, sp_size, 1, 1),
+                      attention_mask,
+                      encoder_attention_mask.repeat(1, sp_size, 1)))
+        encoder_hidden_states = encoder_hidden_states.squeeze(1)
+    else:
         video_states, image_states = hidden_states[:, :, :-use_image_num], hidden_states[:, :, -use_image_num:]
         video_encoder_states, image_encoder_states = encoder_hidden_states[:, :-use_image_num], encoder_hidden_states[:,
                                                                                                 -use_image_num:]
