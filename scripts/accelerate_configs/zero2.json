@@ -15,7 +15,7 @@
     "train_batch_size": "auto",
     "gradient_accumulation_steps": "auto",
     "zero_optimization": {
-        "stage": 2,
+        "stage": 0,
         "overlap_comm": true,
         "round_robin_gradients": false,
         "contiguous_gradients": true,

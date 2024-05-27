@@ -27,12 +27,14 @@ def random_video_noise(t, c, h, w):
 
 
 def filter_json_by_existed_files(directory, data, postfix=".mp4"):
+
     # 构建搜索模式，以匹配指定后缀的文件
     pattern = os.path.join(directory, '**', f'*{postfix}')
     mp4_files = glob.glob(pattern, recursive=True)  # 使用glob查找所有匹配的文件
 
     # 使用文件的绝对路径构建集合
     mp4_files_set = set(os.path.abspath(path) for path in mp4_files)
+    npu_config.print_msg(f"filtering by existed files, current directory is {directory}, found {len(mp4_files_set)} files with postfix {postfix}")
 
     # 过滤数据条目，只保留路径在mp4文件集合中的条目
     filtered_items = [item for item in data if item['path'] in mp4_files_set]
@@ -61,8 +63,7 @@ class T2V_dataset(Dataset):
 
         # self.vid_cap_list, self.local_vid_cap_list = self.get_vid_cap_list()
         self.global_vid_cap_list, self.vid_cap_list, _ = npu_config.try_load_pickle(
-            f"vid_cap_list_{self.num_frames}",
-            self.get_vid_cap_list)
+            f"vid_cap_list_{self.num_frames}", self.get_vid_cap_list)
         self.len_global_vid_list = len(self.global_vid_cap_list)
         npu_config.print_msg(f"len(self.global_vid_cap_list) = {len(self.global_vid_cap_list)}")
         npu_config.print_msg(f"len(self.vid_cap_list) = {len(self.vid_cap_list)}")
@@ -229,7 +230,7 @@ class T2V_dataset(Dataset):
             local_vid_cap_lists += local_vid_cap_list
 
         # print([item['path'] for item in vid_cap_list])
-        return vid_cap_lists, local_vid_cap_lists, len(vid_cap_list)
+        return vid_cap_lists, local_vid_cap_lists, len(vid_cap_lists)
 
     def read_images(self):
         img_cap_lists = []
