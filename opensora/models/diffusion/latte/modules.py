@@ -1377,10 +1377,10 @@ class BasicTransformerBlock_(nn.Module):
                         self.scale_shift_table[:, None] + timestep.reshape(6, batch_size, -1)
                 ).chunk(6, dim=0)
             else:
-                batch_size = hidden_states.shape[0]
+                batch_size, seq_len, _ = hidden_states.shape
                 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-                        self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
-                ).chunk(6, dim=1)
+                        self.scale_shift_table.view(-1)[None, None, :] + timestep.reshape(batch_size, seq_len, -1)
+                ).chunk(6, dim=-1)
             norm_hidden_states = self.norm1(hidden_states)
             norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
         else:

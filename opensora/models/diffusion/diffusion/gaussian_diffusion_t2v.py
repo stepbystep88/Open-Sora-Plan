@@ -745,10 +745,11 @@ class GaussianDiffusion_T:
         else:
             mask = model_kwargs['attention_mask'].unsqueeze(1)  # b t h w -> b 1 t h w
 
-        mask[:, :, :1, :, :] = 0
+        first_frame_x = x_start[:, :, 0:1, :, :]
+        x_start = x_start[:, :, 1:, :, :]
+        model_kwargs.update({"first_frame_hidden_states": first_frame_x})
         if noise is None:
             noise = th.randn_like(x_start)
-            noise[:, :, :1, :, :] = 0
         x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
@@ -808,7 +809,7 @@ class GaussianDiffusion_T:
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = mean_flat(((target - model_output) ** 2) * mask)
+            terms["mse"] = mean_flat(((target - model_output) ** 2) * mask[:, :, 1:, :, :])
             # import ipdb;ipdb.set_trace()
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]

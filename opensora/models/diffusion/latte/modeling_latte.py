@@ -307,6 +307,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             self,
             hidden_states: torch.Tensor,
             timestep: Optional[torch.LongTensor] = None,
+            first_frame_hidden_states: Optional[torch.Tensor] = None,
             encoder_hidden_states: Optional[torch.Tensor] = None,
             added_cond_kwargs: Dict[str, torch.Tensor] = None,
             class_labels: Optional[torch.LongTensor] = None,
@@ -355,6 +356,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
+        if first_frame_hidden_states is not None:
+            hidden_states = torch.cat((first_frame_hidden_states, hidden_states), dim=2)
         input_batch_size, c, frame, h, w = hidden_states.shape
         frame = frame - use_image_num  # 20-4=16
         hidden_states = rearrange(hidden_states, 'b c f h w -> (b f) c h w').contiguous()
@@ -423,6 +426,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     )
                 # batch_size = hidden_states.shape[0]
                 batch_size = input_batch_size
+                first_frame_timestep = torch.zeros([1], dtype=timestep.dtype, device=timestep.device)
+                first_frame_timestep, first_frame_embedded_timestep = self.adaln_single(
+                    first_frame_timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
+                )
                 timestep, embedded_timestep = self.adaln_single(
                     timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
                 )
@@ -444,8 +451,10 @@ class LatteT2V(ModelMixin, ConfigMixin):
                                                        f=frame).contiguous()
 
         # prepare timesteps for spatial and temporal block
-        timestep_spatial = repeat(timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
-        timestep_temp = repeat(timestep, 'b d -> (b p) d', p=num_patches).contiguous()
+        timestep_spatial = repeat(timestep, 'b d -> b f d', f=frame + use_image_num - 1).contiguous()
+        timestep_spatial = torch.cat((first_frame_timestep.unsqueeze(1), timestep_spatial), dim=1)
+        timestep_temp = repeat(timestep_spatial, 'b f d -> (b p) f d', p=num_patches).contiguous()
+        timestep_spatial = rearrange(timestep_spatial, 'b f d -> (b f) d').contiguous()
         # BS H -> S B H
         if get_sequence_parallel_state():
             timestep_temp = timestep_temp.view(input_batch_size * num_patches, 6, -1).transpose(0, 1).contiguous()
@@ -521,7 +530,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             pos_t,
                             pos_t,
                             (frame,),
-                            hw,
                             use_reentrant=False,
                         )
                         if use_image_num != 0:
@@ -619,7 +627,6 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             pos_t,
                             pos_t,
                             (frame,),
-                            hw,
                         )
                         if use_image_num != 0:
                             hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
@@ -659,7 +666,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 hidden_states = self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
                 hidden_states = self.proj_out_2(hidden_states)
             elif self.config.norm_type == "ada_norm_single":
-                embedded_timestep = repeat(embedded_timestep, 'b d -> (b f) d', f=frame + use_image_num).contiguous()
+                embedded_timestep = repeat(embedded_timestep, 'b d -> b f d', f=frame + use_image_num - 1).contiguous()
+                embedded_timestep = torch.cat((first_frame_embedded_timestep, embedded_timestep), dim=1)
+                embedded_timestep = rearrange(embedded_timestep, 'b f d -> (b f) d', b=input_batch_size).contiguous()
                 shift, scale = (self.scale_shift_table[None] + embedded_timestep[:, None]).chunk(2, dim=1)
                 hidden_states = self.norm_out(hidden_states)
                 # Modulation
@@ -677,6 +686,9 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 shape=(-1, self.out_channels, height * self.patch_size, width * self.patch_size)
             )
             output = rearrange(output, '(b f) c h w -> b c f h w', b=input_batch_size).contiguous()
+
+        if first_frame_hidden_states is not None:
+            output = output[:, :, 1:, :, :]
 
         if not return_dict:
             return (output,)
