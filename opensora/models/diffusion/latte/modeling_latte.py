@@ -440,7 +440,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 encoder_hidden_states = torch.cat([encoder_hidden_states_video, encoder_hidden_states_image], dim=1)
                 encoder_hidden_states_spatial = rearrange(encoder_hidden_states, 'b f t d -> (b f) t d').contiguous()
             else:
-                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b t d -> (b f) t d',
+                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b 1 t d -> (b f) t d',
                                                        f=frame).contiguous()
 
         # prepare timesteps for spatial and temporal block
@@ -486,7 +486,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     spatial_block,
                     hidden_states,
-                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask,
+                    None,
                     encoder_hidden_states_spatial,
                     encoder_attention_mask,
                     timestep_spatial,
@@ -494,6 +494,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     class_labels,
                     pos_hw,
                     pos_hw,
+                    (frame,),
                     hw,
                     use_reentrant=False,
                 )
@@ -520,6 +521,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             pos_t,
                             pos_t,
                             (frame,),
+                            hw,
                             use_reentrant=False,
                         )
                         if use_image_num != 0:
@@ -550,6 +552,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                                 pos_t,
                                 pos_t,
                                 (frame,),
+                                hw,
                                 use_reentrant=False,
                             )
 
@@ -574,6 +577,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                                 pos_t,
                                 pos_t,
                                 (frame,),
+                                hw,
                                 use_reentrant=False,
                             )
 
@@ -582,7 +586,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
             else:
                 hidden_states = spatial_block(
                     hidden_states,
-                    attention_mask_compress if i >= self.num_layers // 2 else attention_mask,
+                    None,
                     encoder_hidden_states_spatial,
                     encoder_attention_mask,
                     timestep_spatial,
@@ -590,6 +594,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     class_labels,
                     pos_hw,
                     pos_hw,
+                    (frame,),
                     hw,
                 )
 
@@ -614,6 +619,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             pos_t,
                             pos_t,
                             (frame,),
+                            hw,
                         )
                         if use_image_num != 0:
                             hidden_states = torch.cat([hidden_states, hidden_states_image], dim=0)
@@ -638,6 +644,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                             pos_t,
                             pos_t,
                             (frame,),
+                            hw,
                         )
 
                         hidden_states = rearrange(hidden_states, '(b t) f d -> (b f) t d',

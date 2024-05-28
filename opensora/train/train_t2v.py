@@ -547,6 +547,11 @@ def main(args):
             broadcast(t)
         # npu_config.print_msg(t, f"TimeStep: after broadcast")
 
+        x = x[:, :, :-args.use_image_num]
+        model_kwargs["encoder_hidden_states"] = model_kwargs["encoder_hidden_states"][:, :-args.use_image_num]
+        model_kwargs["attention_mask"] = model_kwargs["attention_mask"][:, :-args.use_image_num]
+        model_kwargs["encoder_attention_mask"] = model_kwargs["encoder_attention_mask"][:, :-args.use_image_num]
+        model_kwargs["use_image_num"] = 0
         loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
         loss = loss_dict["loss"].mean()
 

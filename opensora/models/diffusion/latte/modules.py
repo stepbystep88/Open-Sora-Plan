@@ -37,7 +37,7 @@ else:
 from opensora.acceleration.parallel_states import get_sequence_parallel_state, hccl_info, lccl_info, enable_LCCL
 from opensora.acceleration.communications import all_to_all_SBH
 import torch_npu
-
+from einops import rearrange, repeat
 
 class CombinedTimestepSizeEmbeddings(nn.Module):
     """
@@ -1356,7 +1356,8 @@ class BasicTransformerBlock_(nn.Module):
             class_labels: Optional[torch.LongTensor] = None,
             position_q: Optional[torch.LongTensor] = None,
             position_k: Optional[torch.LongTensor] = None,
-            frame: int = None,
+            frame: Tuple[int] = None,
+            hw: Tuple[int, int] = None,
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1656,7 +1657,9 @@ class BasicTransformerBlock(nn.Module):
             class_labels: Optional[torch.LongTensor] = None,
             position_q: Optional[torch.LongTensor] = None,
             position_k: Optional[torch.LongTensor] = None,
+            frame: Tuple[int] = None,
             hw: Tuple[int, int] = None,
+
     ) -> torch.FloatTensor:
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
@@ -1690,9 +1693,14 @@ class BasicTransformerBlock(nn.Module):
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
 
+        first_frame_hidden_states = rearrange(norm_hidden_states, '(b f) d h -> b f d h', f=frame[0])[:, 0, :, :]
+        first_frame_hidden_states = repeat(first_frame_hidden_states, 'b d h -> b f d h', f=frame[0])
+        first_frame_hidden_states = rearrange(first_frame_hidden_states, 'b f d h -> (b f) d h')
+        first_frame_concat_hidden_states = torch.cat((norm_hidden_states, first_frame_hidden_states), dim=1)
+        print(first_frame_concat_hidden_states.size())
         attn_output = self.attn1(
             norm_hidden_states,
-            encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
+            encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else first_frame_concat_hidden_states,
             attention_mask=attention_mask,
             position_q=position_q,
             position_k=position_k,
