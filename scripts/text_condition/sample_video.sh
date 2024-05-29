@@ -3,7 +3,7 @@ WEIGHT_PATH="/home/opensora/shebin/pre_weights/"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 export MASTER_PORT=12359
 
-torchrun --nproc_per_node=8 opensora/sample/sample_t2v.py \
+torchrun --nproc_per_node=8 opensora/sample/sample_i2v.py \
     --model_path /home/image_data/checkpoints/${PROJECT_NAME} \
     --version ${NUM_FRAME}x512x512 \
     --image_size 512 \
@@ -12,7 +12,7 @@ torchrun --nproc_per_node=8 opensora/sample/sample_t2v.py \
     --text_prompt examples/prompt_list_0.txt \
     --ae CausalVAEModel_4x8x8 \
     --ae_path "${WEIGHT_PATH}/CausalVAEModel_4x8x8_0430/" \
-    --save_img_path "/home/image_data/shebin/sample_videos/${PROJECT_NAME}/num_sampling_steps_150" \
+    --save_img_path "/home/image_data/yancen/sample_videos/${PROJECT_NAME}" \
     --fps 24 \
     --sample_method "PNDM" \
     --guidance_scale 10 \

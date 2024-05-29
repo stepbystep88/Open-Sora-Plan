@@ -537,6 +537,7 @@ class VideoGenPipeline(DiffusionPipeline):
             eta: float = 0.0,
             generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
             latents: Optional[torch.FloatTensor] = None,
+            first_frame_latent: Optional[torch.FloatTensor] = None,
             prompt_embeds: Optional[torch.FloatTensor] = None,
             negative_prompt_embeds: Optional[torch.FloatTensor] = None,
             output_type: Optional[str] = "pil",
@@ -662,7 +663,7 @@ class VideoGenPipeline(DiffusionPipeline):
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             latent_channels,
-            (video_length + hccl_info.world_size - 1) // hccl_info.world_size if get_sequence_parallel_state() else video_length,
+            (video_length + hccl_info.world_size - 1) // hccl_info.world_size if get_sequence_parallel_state() else video_length - 1,
             height,
             width,
             prompt_embeds.dtype,
@@ -686,6 +687,8 @@ class VideoGenPipeline(DiffusionPipeline):
         # 7. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
 
+        if first_frame_latent != None:
+            first_frame_latent_input = torch.cat([first_frame_latent] * 2)
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -709,6 +712,7 @@ class VideoGenPipeline(DiffusionPipeline):
                 # predict noise model_output
                 noise_pred = self.transformer(
                     latent_model_input,
+                    first_frame_hidden_states=first_frame_latent_input,
                     encoder_hidden_states=prompt_embeds,
                     timestep=current_timestep,
                     added_cond_kwargs=added_cond_kwargs,
@@ -746,6 +750,8 @@ class VideoGenPipeline(DiffusionPipeline):
             latents = torch.cat(latents_list, dim=2)[:, :, :video_length]
         latents = latents[:, :, :video_length]
 
+        if first_frame_latent != None:
+            latents = torch.cat((first_frame_latent, latents), dim=2)
         if not output_type == 'latents':
             video = self.decode_latents(latents)
         else:

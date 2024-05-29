@@ -426,7 +426,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                     )
                 # batch_size = hidden_states.shape[0]
                 batch_size = input_batch_size
-                first_frame_timestep = torch.zeros([1], dtype=timestep.dtype, device=timestep.device)
+                first_frame_timestep = torch.zeros([batch_size], dtype=timestep.dtype, device=timestep.device)
                 first_frame_timestep, first_frame_embedded_timestep = self.adaln_single(
                     first_frame_timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
                 )
@@ -447,7 +447,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 encoder_hidden_states = torch.cat([encoder_hidden_states_video, encoder_hidden_states_image], dim=1)
                 encoder_hidden_states_spatial = rearrange(encoder_hidden_states, 'b f t d -> (b f) t d').contiguous()
             else:
-                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b 1 t d -> (b f) t d',
+                encoder_hidden_states = encoder_hidden_states.squeeze(1)
+                encoder_hidden_states_spatial = repeat(encoder_hidden_states, 'b t d -> (b f) t d',
                                                        f=frame).contiguous()
 
         # prepare timesteps for spatial and temporal block
