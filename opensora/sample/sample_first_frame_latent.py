@@ -78,8 +78,9 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
 
     checkpoint_name = f"{os.path.basename(model_path)}"
 
+    example_per_rank = len(args.text_prompt) // world_size
     for index, prompt in enumerate(args.text_prompt):
-        if index % npu_config.N_NPU_PER_NODE != local_rank:
+        if index < local_rank * example_per_rank or index >= (local_rank + 1) * example_per_rank:
             continue
         print('Processing the ({}) prompt'.format(prompt))
         videos = videogen_pipeline(prompt,
@@ -108,7 +109,6 @@ def run_model_and_save_images(videogen_pipeline, transformer_model, video_length
 
     for prompt, latent in zip(args.text_prompt, latents):
         first_frame_latent[prompt] = latent
-        print(prompt, latent.size())
 
     # Save the dictionary to a .pkl file
     with open('/home/image_data/yancen/first_frame_latent.pkl', 'wb') as f:
@@ -230,6 +230,7 @@ if __name__ == "__main__":
                 on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"{profile_output_path}/")
         ) as prof:
             run_model_and_save_images(videogen_pipeline, transformer_model, video_length, image_size, latest_path)
+            break
             prof.step()
 
 
