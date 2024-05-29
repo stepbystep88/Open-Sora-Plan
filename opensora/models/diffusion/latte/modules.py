@@ -1694,10 +1694,9 @@ class BasicTransformerBlock(nn.Module):
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
 
         first_frame_hidden_states = rearrange(norm_hidden_states, '(b f) d h -> b f d h', f=frame[0])[:, 0, :, :]
-        first_frame_hidden_states = repeat(first_frame_hidden_states, 'b d h -> b f d h', f=frame[0])
-        first_frame_hidden_states = rearrange(first_frame_hidden_states, 'b f d h -> (b f) d h')
+        first_frame_hidden_states = repeat(first_frame_hidden_states, 'b d h -> b f d h', f=frame[0]).contiguous()
+        first_frame_hidden_states = rearrange(first_frame_hidden_states, 'b f d h -> (b f) d h').contiguous()
         first_frame_concat_hidden_states = torch.cat((norm_hidden_states, first_frame_hidden_states), dim=1)
-        print(first_frame_concat_hidden_states.size())
         attn_output = self.attn1(
             norm_hidden_states,
             encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else first_frame_concat_hidden_states,

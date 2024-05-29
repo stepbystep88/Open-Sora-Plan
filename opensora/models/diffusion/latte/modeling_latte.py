@@ -667,7 +667,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
                 hidden_states = self.proj_out_2(hidden_states)
             elif self.config.norm_type == "ada_norm_single":
                 embedded_timestep = repeat(embedded_timestep, 'b d -> b f d', f=frame + use_image_num - 1).contiguous()
-                embedded_timestep = torch.cat((first_frame_embedded_timestep, embedded_timestep), dim=1)
+                embedded_timestep = torch.cat((first_frame_embedded_timestep.unsqueeze(1), embedded_timestep), dim=1)
                 embedded_timestep = rearrange(embedded_timestep, 'b f d -> (b f) d', b=input_batch_size).contiguous()
                 shift, scale = (self.scale_shift_table[None] + embedded_timestep[:, None]).chunk(2, dim=1)
                 hidden_states = self.norm_out(hidden_states)
