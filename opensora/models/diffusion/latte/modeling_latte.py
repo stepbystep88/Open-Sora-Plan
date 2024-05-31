@@ -13,7 +13,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
 from opensora.utils.utils import to_2tuple
-
+from opensora.npu_config import npu_config
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -144,8 +144,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
         )
         interpolation_scale = (
-            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
-            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
+            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30,
+            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40,
         )
         self.pos_embed = PatchEmbed(
             height=sample_size[0],
@@ -161,7 +161,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #     interpolation_scale_1d = (self.config.video_length - 1) // 16  # => 16 (= 16 Latte) has interpolation scale 1
         # else:
         #     interpolation_scale_1d = self.config.video_length // 16  # => 16 (= 16 Latte) has interpolation scale 1
-        # # interpolation_scale_1d = self.config.video_length // 5  # 
+        # # interpolation_scale_1d = self.config.video_length // 5  #
         # interpolation_scale_1d = max(interpolation_scale_1d, 1)
         temp_pos_embed = get_1d_sincos_pos_embed(inner_dim, self.config.sample_size_t, interpolation_scale=interpolation_scale_t)  # 1152 hidden size
         self.register_buffer("temp_pos_embed", torch.from_numpy(temp_pos_embed).float().unsqueeze(0), persistent=False)
@@ -279,6 +279,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         #   (keep = +0,     discard = -10000.0)
         attention_mask = (1 - attention_mask.to(dtype)) * -10000.0
         attention_mask = attention_mask.to(self.dtype)
+        attention_mask = npu_config.get_attention_mask(attention_mask, attention_mask.shape[-1])
         return attention_mask
 
     def vae_to_diff_mask(self, attention_mask, use_image_num):
@@ -381,6 +382,8 @@ class LatteT2V(ModelMixin, ConfigMixin):
             encoder_attention_mask = torch.cat([encoder_attention_mask_video, encoder_attention_mask_image], dim=1)
             encoder_attention_mask = rearrange(encoder_attention_mask, 'b n l -> (b n) l').contiguous().unsqueeze(1)
             encoder_attention_mask = encoder_attention_mask.to(self.dtype)
+
+        encoder_attention_mask = npu_config.get_attention_mask(encoder_attention_mask, attention_mask.shape[-2])
 
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0

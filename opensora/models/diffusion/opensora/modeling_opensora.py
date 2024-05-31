@@ -13,7 +13,7 @@ from diffusers.models.normalization import AdaLayerNormSingle
 from diffusers.models.embeddings import PixArtAlphaTextProjection
 from opensora.models.diffusion.opensora.modules import PatchEmbed3D, PatchEmbed2D, BasicTransformerBlock
 from opensora.utils.utils import to_2tuple
-
+from opensora.npu_config import npu_config
 class OpenSoraT2V(ModelMixin, ConfigMixin):
     """
     A 2D Transformer model for image-like data.
@@ -146,8 +146,8 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             self.config.interpolation_scale_t if self.config.interpolation_scale_t is not None else interpolation_scale_t
         )
         interpolation_scale = (
-            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30, 
-            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40, 
+            self.config.interpolation_scale_h if self.config.interpolation_scale_h is not None else self.config.sample_size[0] / 30,
+            self.config.interpolation_scale_w if self.config.interpolation_scale_w is not None else self.config.sample_size[1] / 40,
         )
         # if self.config.sample_size_t > 1:
         #     self.pos_embed = PatchEmbed3D(
@@ -343,6 +343,16 @@ class OpenSoraT2V(ModelMixin, ConfigMixin):
             if frame == 1 and use_image_num == 0:
                 encoder_attention_mask_img = encoder_attention_mask_vid
                 encoder_attention_mask_vid = None
+
+            if attention_mask_vid is not None:
+                attention_mask_vid = npu_config.get_attention_mask(attention_mask_vid, attention_mask_vid.shape[-1])
+                encoder_attention_mask_vid = npu_config.get_attention_mask(encoder_attention_mask_vid,
+                                                                           attention_mask_vid.shape[-2])
+            if attention_mask_img is not None:
+                attention_mask_img = npu_config.get_attention_mask(attention_mask_img, attention_mask_img.shape[-1])
+                encoder_attention_mask_img = npu_config.get_attention_mask(encoder_attention_mask_img,
+                                                                           attention_mask_img.shape[-2])
+
 
         # 1. Input
         height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size

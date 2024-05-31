@@ -81,7 +81,7 @@ class T2V_dataset(Dataset):
         t = video.shape[0]
         video = video[:(t - 1) // 4 * 4 + 1]
         video = self.transform(video)  # T C H W -> T C H W
-        
+
         # video = torch.rand(65, 3, 240, 320)
 
         video = video.transpose(0, 1)  # T C H W -> C T H W

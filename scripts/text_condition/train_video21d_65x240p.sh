@@ -2,7 +2,7 @@ export WANDB_KEY="953e958793b218efb850fa194e85843e2c3bd88b"
 # export WANDB_MODE="offline"
 export ENTITY="linbin"
 export PROJECT="test21d_2node_65x240p_bs4_snr5_ema0_pt"
-export HF_DATASETS_OFFLINE=1 
+export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 # NCCL setting
 export NCCL_PXN_DISABLE=0

@@ -13,4 +13,4 @@ CUDA_VISIBLE_DEVICES=6 python opensora/sample/sample_t2v_pixsig.py \
     --fps 24 \
     --guidance_scale 4.0 \
     --num_sampling_steps 50 \
-    --enable_tiling 
+    --enable_tiling
